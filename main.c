@@ -48,7 +48,7 @@ int main(int argc, char *argv[])
     refresh_tree_view();
     model = create_and_fill_model();
     gtk_tree_view_set_model(erasing_tree_view, model);
-    g_object_unref(model); /* destroy model automatically*/
+    g_object_unref(model);
 
     window = GTK_WIDGET(gtk_builder_get_object(builder, MAIN_WINDOW));
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
@@ -112,11 +112,7 @@ static GtkTreeModel *create_and_fill_model(void)
     GtkTreeStore *treestore;
     GtkTreeIter toplevel, child;
 
-    // creamos un treestore con la cantidad de columnas y los campos que se usan
-    //treestore = gtk_tree_store_new(NUM_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,G_TYPE_STRING);
-
-
-
+    // creamos un treestore con la cantidad de columnas y los tipos de campos que se usan
     treestore = gtk_tree_store_new(STORAGE_DEVICE_N_COLUMNS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_DOUBLE, G_TYPE_STRING);
                                                    
     char device_num[128];
@@ -126,8 +122,6 @@ static GtkTreeModel *create_and_fill_model(void)
         /* Append a top level row and leave it empty */
         sprintf(device_num, "Device: %i", i);
         gtk_tree_store_append(treestore, &toplevel, NULL);
-
-        //gtk_tree_store_set(treestore, &toplevel, STORAGE_DEVICE_NAME,"perro",ERASING_STORAGE_DEVICE_PROGRESS,(double) 50,-1);
 
         gtk_tree_store_set(treestore, &toplevel, STORAGE_DEVICE_NAME, device_num, STORAGE_DEVICE_MODEL, "Samsung 2566g", ERASING_STORAGE_DEVICE_STATE_TEXT,"IDLE",ERASING_STORAGE_DEVICE_PROGRESS, (double)50, ERASING_STORAGE_DEVICE_PROGRESS_TEXT, "Borrando",-1);
     }
