@@ -35,5 +35,9 @@
     "**/.*/**",
     "**/.vscode",
     "**/.vscode/**"
-  ]
+  ],
+  "files.associations": {
+    "storage_devices.h": "c",
+    "stdbool.h": "c"
+  }
 }

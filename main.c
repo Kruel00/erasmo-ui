@@ -1,8 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <gtk/gtk.h>
 #include <stddef.h>
+
+#include "erasmo.h"
+#include "build_device.h"
+
+
+/*
+    gcc -o erasmo main.c `pkg-config --cflags --libs gtk+-3.0`
+
+*/
 
 #define BUILDER_FILE "window_main.glade"
 #define MAIN_WINDOW "erasmo_main_window"
@@ -11,6 +19,7 @@
 #define REFRESH_BUTTON "refresh_button"
 #define CANCEL_BUTTON "cancel_button"
 #define DEVICE_TREEVIEW "device_treeview"
+#define DEVICE_SELECTION "device_selecction"
 
 enum {
 	STORAGE_DEVICE_NAME,
@@ -24,6 +33,7 @@ enum {
 	ERASING_STORAGE_DEVICE_STATE_TEXT,
 	ERASING_STORAGE_DEVICE_PROGRESS,
 	ERASING_STORAGE_DEVICE_PROGRESS_TEXT,
+	ERASING_STORAGE_DEVICE_POINTER_TO_OBJECT,
 
 	STORAGE_DEVICE_N_COLUMNS
 };
@@ -31,9 +41,9 @@ enum {
 GtkWidget *window;
 GtkBuilder *builder;
 GtkTreeView *erasing_tree_view;
+GtkTreeSelection *selection;
 
-static GtkTreeModel *create_and_fill_model(void);
-void refresh_tree_view();
+char device_selected[512];
 
 int main(int argc, char *argv[])
 {
@@ -45,7 +55,7 @@ int main(int argc, char *argv[])
     builder = gtk_builder_new_from_file(BUILDER_FILE);
 
     //treeview
-    refresh_tree_view();
+    create_treeview_columns();
     model = create_and_fill_model();
     gtk_tree_view_set_model(erasing_tree_view, model);
     g_object_unref(model);
@@ -54,18 +64,22 @@ int main(int argc, char *argv[])
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     gtk_builder_connect_signals(builder, NULL);
 
+    selection = GTK_TREE_SELECTION(gtk_builder_get_object(builder,DEVICE_SELECTION));
+
     gtk_widget_show(window);
 
     gtk_main();
 
     // hw
     // libhw_init();
-
+    
+    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(erasing_tree_view)) ;
+    
     printf("ERASMO");
     return 0;
 }
 
-void refresh_tree_view()
+void create_treeview_columns()
 {
     GtkTreeViewColumn *col;
     GtkCellRenderer *renderer;
@@ -78,23 +92,31 @@ void refresh_tree_view()
     GtkCellRenderer *device_renderer = gtk_cell_renderer_text_new();  
     g_object_set(G_OBJECT(device_renderer), "font", font_desc, NULL);
     GtkTreeViewColumn *device_column = gtk_tree_view_column_new_with_attributes("Device", device_renderer, "text", STORAGE_DEVICE_NAME, NULL);
-    gtk_tree_view_column_set_min_width(device_column, 170);
+    gtk_tree_view_column_set_min_width(device_column, 160);
     gtk_tree_view_append_column(erasing_tree_view, device_column);
 
-    /* --- Columna #2 --- */
+    /* --- Columna Model --- */
 
     GtkCellRenderer *model_renderer = gtk_cell_renderer_text_new();  
     g_object_set(G_OBJECT(model_renderer), "font", font_desc, NULL);
     GtkTreeViewColumn *model_column = gtk_tree_view_column_new_with_attributes("Model", model_renderer, "text", STORAGE_DEVICE_MODEL, NULL);
-    gtk_tree_view_column_set_min_width(model_column, 200);
+    gtk_tree_view_column_set_min_width(model_column, 260);
     gtk_tree_view_append_column(erasing_tree_view, model_column);
 
-    
+        /* --- Columna Serial --- */
+
+    GtkCellRenderer *serail_renderer = gtk_cell_renderer_text_new();  
+    g_object_set(G_OBJECT(serail_renderer), "font", font_desc, NULL);
+    GtkTreeViewColumn *serail_column = gtk_tree_view_column_new_with_attributes("Serial No.", serail_renderer, "text", STORAGE_DEVICE_SERIAL, NULL);
+    gtk_tree_view_column_set_min_width(serail_column, 250);
+    gtk_tree_view_append_column(erasing_tree_view, serail_column);
+
+
     /* --- Columna #3 --- */
     GtkCellRenderer *status_renderer = gtk_cell_renderer_text_new();  
     g_object_set(G_OBJECT(status_renderer), "font", font_desc, NULL);
     GtkTreeViewColumn *state_column = gtk_tree_view_column_new_with_attributes("State", status_renderer, "text", ERASING_STORAGE_DEVICE_STATE_TEXT, NULL);
-    gtk_tree_view_column_set_min_width(state_column, 100);
+    gtk_tree_view_column_set_min_width(state_column, 20);
     gtk_tree_view_append_column(erasing_tree_view, state_column);
 
 
@@ -113,19 +135,73 @@ static GtkTreeModel *create_and_fill_model(void)
     GtkTreeIter toplevel, child;
 
     // creamos un treestore con la cantidad de columnas y los tipos de campos que se usan
-    treestore = gtk_tree_store_new(STORAGE_DEVICE_N_COLUMNS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_DOUBLE, G_TYPE_STRING);
-                                                   
+    treestore = gtk_tree_store_new(STORAGE_DEVICE_N_COLUMNS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
+                                   G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_DOUBLE, G_TYPE_STRING,
+                                   G_TYPE_POINTER);
+                                                       
     char device_num[128];
 
-    for (int i = 0; i < 7; i++)
+    storage_device_list_t device_list;
+    init_storage_device_list(&device_list);
+
+    storage_device_t disk;
+    init_storage_device(&disk);
+
+    if(detect_storage_devices(&device_list)==0){
+
+    for (int dev_num = 0; dev_num < device_list.count; dev_num++)
     {
-        /* Append a top level row and leave it empty */
-        sprintf(device_num, "Device: %i", i);
+        //nueva celda
         gtk_tree_store_append(treestore, &toplevel, NULL);
 
-        gtk_tree_store_set(treestore, &toplevel, STORAGE_DEVICE_NAME, device_num, STORAGE_DEVICE_MODEL, "Samsung 2566g", ERASING_STORAGE_DEVICE_STATE_TEXT,"IDLE",ERASING_STORAGE_DEVICE_PROGRESS, (double)50, ERASING_STORAGE_DEVICE_PROGRESS_TEXT, "Borrando",-1);
+        gtk_tree_store_set(treestore, &toplevel, STORAGE_DEVICE_NAME, device_list.device[dev_num].name, STORAGE_DEVICE_MODEL,
+                           device_list.device[dev_num].model, STORAGE_DEVICE_SERIAL, device_list.device[dev_num].serial_number ,ERASING_STORAGE_DEVICE_STATE_TEXT,"IDLE",ERASING_STORAGE_DEVICE_PROGRESS,
+                            (double)50, ERASING_STORAGE_DEVICE_PROGRESS_TEXT, "Borrando",-1);
     }
-
+    }
 
     return GTK_TREE_MODEL(treestore);
 }
+
+void alert(char msg[256]){
+    char cmd[512];
+    sprintf(cmd,"zenity --info --text='%s'",msg);    
+    system(cmd);
+}
+
+
+void erase_device(){
+    
+    alert(device_selected);
+
+} 
+
+void refresh_devices(){
+    alert("Refresh devices");
+}
+
+
+void cancel_erasing_device(){
+    alert("cancel erase device");
+}
+
+void on_select_changed(GtkWidget *c){
+
+    gchar *value;
+    GtkTreeIter iter;
+    GtkTreeModel *model;
+
+    if(gtk_tree_selection_get_selected(GTK_TREE_SELECTION(c),&model, &iter) == FALSE)
+        return;
+
+        gtk_tree_model_get(model,&iter,4,&value,-1);
+        printf("Serial No: %s\n",value);
+
+        strcpy(device_selected,value);
+}
+
+void on_destroy(){
+    gtk_main_quit();
+}
+
+
