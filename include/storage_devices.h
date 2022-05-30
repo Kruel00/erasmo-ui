@@ -6,17 +6,12 @@ typedef struct mount_point_s {
 
 } mount_point_t;
 
-typedef struct disco_t {
-    int host_no;        /* as in "scsi<n>" where 'n' is one of 0, 1, 2 etc */
-    int channel;
-    int scsi_id;        /* scsi id of target device */
-    int lun;
-    int scsi_type;      /* TYPE_... defined in scsi/scsi.h */
-    short h_cmd_per_lun;/* host (adapter) maximum commands per lun */
-    short d_queue_depth;/* device (or adapter) maximum queue length */
-    int unused1;        /* probably find a good use, set 0 for now */
-    int unused2;        /* ditto */
-} disco_t;
+typedef struct storage_selected_s {
+    char name[256];
+    char model[512];
+    char serial_no[512];
+    char bus_type[128];
+} storage_selected_t;
 
 typedef struct partition_s {
 

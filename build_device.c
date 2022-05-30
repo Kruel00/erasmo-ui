@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <gtk/gtk.h>
 
 #include "build_device.h"
 
@@ -26,6 +27,34 @@ void init_storage_device_list(storage_device_list_t *const device_list)
     device_list->count = 0U;
 }
 
+
+void find_device_by_serial(storage_device_t *const device, gchar *const device_serial)
+{
+
+    storage_device_list_t device_list;
+    init_storage_device_list(&device_list);
+
+    if (detect_storage_devices(&device_list) == 0)
+    {
+        for (int dev_num = 0; dev_num < device_list.count; dev_num++)
+        {
+            if (strcmp(device_list.device[dev_num].serial_number, device_serial) == 0){
+                device->block_size = device_list.device[dev_num].block_size;
+                strcpy(device->brand,device_list.device[dev_num].brand);
+                strcpy(device->name,device_list.device[dev_num].name);
+                strcpy(device->serial_number,device_list.device[dev_num].serial_number);
+                strcpy(device->bus,device_list.device[dev_num].bus);
+                strcpy(device->model,device_list.device[dev_num].model);
+                device->sectors = device_list.device[dev_num].sectors;
+                //strcpy(device->sectors,device_list.device[dev_num].sectors);
+            }
+        }
+    }
+
+    
+}
+
+
 void init_storage_device(storage_device_t *const device)
 {
 
@@ -37,6 +66,16 @@ void init_storage_device(storage_device_t *const device)
     device->sectors = 0UL;
     device->block_size = 0U;
 }
+
+void init_storage_device_selected(storage_selected_t *const device)
+{
+    device->name[0] = '\0';
+    device->model[0] = '\0';
+    device->serial_no[0] = '\0';
+    device->bus_type[0] = '\0';
+    
+}
+
 
 int detect_storage_devices(storage_device_list_t *const device_list)
 {
@@ -95,7 +134,7 @@ int detect_storage_devices(storage_device_list_t *const device_list)
                                 if (u_device != NULL) {
                                     struct udev_list_entry *u_entry = udev_device_get_properties_list_entry(u_device);
                                     while (u_entry != NULL) {
-
+                                        strcpy(device_list->device[i_dev].erasing_status,"Idle");
                                         if (strcmp(udev_list_entry_get_name(u_entry), "ID_SERIAL") == 0){
                                             if (device_list->device[i_dev].serial_number[0] == '\0'){
                                                 strcpy(device_list->device[i_dev].serial_number, udev_list_entry_get_value(u_entry));
@@ -125,7 +164,7 @@ int detect_storage_devices(storage_device_list_t *const device_list)
                             
 										} else if(strcmp(udev_list_entry_get_name(u_entry), "DEVNAME") == 0) {
 											strcpy(device_list->device[i_dev].name, udev_list_entry_get_value(u_entry));
-                            
+
                                             
 										}
                                         u_entry = udev_list_entry_get_next(u_entry);
@@ -144,7 +183,6 @@ int detect_storage_devices(storage_device_list_t *const device_list)
                                     }
                                     udev_device_unref(u_device);
 									++device_list->count;
-                                    printf("\n");
                                 }
                                  else {
                                     device_list->device[i_dev].sys_path[0] = '\0';

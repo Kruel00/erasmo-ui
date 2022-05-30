@@ -38,6 +38,9 @@
   ],
   "files.associations": {
     "storage_devices.h": "c",
-    "stdbool.h": "c"
+    "stdbool.h": "c",
+    "errno.h": "c",
+    "erasmo.h": "c",
+    "build_device.h": "c"
   }
 }
