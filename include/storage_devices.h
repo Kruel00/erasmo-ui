@@ -33,8 +33,6 @@ typedef struct partition_s {
 
 } partition_t;
 
-
-
 typedef enum storage_device_type {
 
 	INTERNAL_SG_DEVICE,
@@ -46,33 +44,40 @@ typedef enum storage_device_type {
 
 } StorageDeviceType;
 
-typedef struct storage_device_s{
-    char sys_path[512];
-    char filename[128];
-    char name[32];
-    char bus[32];
-    char partition_table_type[32];
+
+typedef struct storage_device_s {
+
+	char name[32];
+	char sys_path[512];
+	char partition_table_type[32];
 	char partition_table_uuid[64];
-    int  open_num;
-    int  cmd_len;
+	char serial[256];
+	char model[128];
+	char vendor[128];
+	char bus[32];
 	char usb_driver[32];
 	char type_attribute[32];
-    unsigned long int sectors;
-    unsigned int block_size;
-    char type[32];
-    char brand[64];
-    char model[64];
-    char serial_number[256];
-    
-    char erasing_status[32];
+
+	unsigned long long int total_sectors;
+	unsigned long long int sector_size;
+
+	unsigned long long int capacity_bytes;
+	unsigned long long int used_bytes;
+
+	bool is_boot;
+
+	StorageDeviceType type;
+	char sg_name[32];
+	char nvme_short_name[32];
+
     bool is_erased;
-    
-    size_t partition_count;
-    partition_t *partitions;
 
+    char erasing_status[64];
 
-}storage_device_t;
+	partition_t *partitions;
+	size_t partition_count;
 
+} storage_device_t;
 
 
 typedef struct storage_device_list_s

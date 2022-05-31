@@ -15,8 +15,9 @@
   <object class="GtkWindow" id="erasmo_main_window">
     <property name="name">window</property>
     <property name="width_request">1024</property>
-    <property name="height_request">600</property>
+    <property name="height_request">620</property>
     <property name="can_focus">False</property>
+    <property name="resizable">False</property>
     <property name="default_width">640</property>
     <property name="default_height">400</property>
     <child type="titlebar">
@@ -38,8 +39,8 @@
             <child>
               <object class="GtkButton" id="refresh_button">
                 <property name="label" translatable="yes">Refresh</property>
-                <property name="width_request">80</property>
-                <property name="height_request">60</property>
+                <property name="width_request">100</property>
+                <property name="height_request">100</property>
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
                 <property name="receives_default">True</property>
@@ -87,8 +88,8 @@
             </child>
           </object>
           <packing>
-            <property name="x">5</property>
-            <property name="y">422</property>
+            <property name="x">14</property>
+            <property name="y">469</property>
           </packing>
         </child>
         <child>
@@ -111,7 +112,7 @@
             </child>
           </object>
           <packing>
-            <property name="y">117</property>
+            <property name="y">150</property>
           </packing>
         </child>
         <child>
@@ -123,8 +124,8 @@
             <property name="editable">False</property>
           </object>
           <packing>
-            <property name="x">559</property>
-            <property name="y">451</property>
+            <property name="x">557</property>
+            <property name="y">477</property>
           </packing>
         </child>
         <child>
@@ -136,8 +137,21 @@
             <property name="label" translatable="yes">Device Info.</property>
           </object>
           <packing>
-            <property name="x">551</property>
-            <property name="y">429</property>
+            <property name="x">546</property>
+            <property name="y">455</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkImage">
+            <property name="width_request">512</property>
+            <property name="height_request">128</property>
+            <property name="visible">True</property>
+            <property name="can_focus">False</property>
+            <property name="pixbuf">pics/ByReconext.png</property>
+          </object>
+          <packing>
+            <property name="x">7</property>
+            <property name="y">3</property>
           </packing>
         </child>
       </object>

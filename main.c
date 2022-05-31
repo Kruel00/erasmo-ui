@@ -7,8 +7,7 @@
 #include "build_device.h"
 
 /*
-    gcc -o erasmo main.c `pkg-config --cflags --libs gtk+-3.0`
-
+    gcc -o erasmo main.c build_device.c `pkg-config --cflags --libs gtk+-3.0` -rdynamic -I./include -ludev -lblkid
 */
 
 #define BUILDER_FILE "window_main.glade"
@@ -20,8 +19,8 @@
 #define DEVICE_TREEVIEW "device_treeview"
 #define DEVICE_SELECTION "device_selecction"
 #define EMPTY_STRING ""
-enum
-{
+
+enum {
     STORAGE_DEVICE_NAME,
     STORAGE_DEVICE_VENDOR,
     STORAGE_DEVICE_MODEL,
@@ -37,6 +36,7 @@ enum
 
     STORAGE_DEVICE_N_COLUMNS
 };
+
 
 GtkWidget *window;
 GtkBuilder *builder;
@@ -78,6 +78,8 @@ int main(int argc, char *argv[])
     printf("ERASMO");
     return 0;
 }
+
+
 
 void create_treeview_columns()
 {
@@ -124,8 +126,10 @@ void create_treeview_columns()
     gtk_tree_view_append_column(erasing_tree_view, progress_column);
 }
 
-static GtkTreeModel *create_and_fill_model(void)
-{
+
+
+static GtkTreeModel *create_and_fill_model(){
+
     GtkTreeStore *treestore;
     GtkTreeIter toplevel, child;
 
@@ -148,10 +152,11 @@ static GtkTreeModel *create_and_fill_model(void)
         for (int dev_num = 0; dev_num < device_list.count; dev_num++)
         {
             // nueva celda
+            set_device_capacity_data(&device_list.device[dev_num]);
             gtk_tree_store_append(treestore, &toplevel, NULL);
             device_list.device[dev_num].is_erased = false;
             gtk_tree_store_set(treestore, &toplevel, STORAGE_DEVICE_NAME, device_list.device[dev_num].name, STORAGE_DEVICE_MODEL,
-                               device_list.device[dev_num].model, STORAGE_DEVICE_SERIAL, device_list.device[dev_num].serial_number,
+                               device_list.device[dev_num].model, STORAGE_DEVICE_SERIAL, device_list.device[dev_num].serial,
                                ERASING_STORAGE_DEVICE_STATE_TEXT, device_list.device[dev_num].erasing_status, ERASING_STORAGE_DEVICE_PROGRESS,
                                (double)0, ERASING_STORAGE_DEVICE_PROGRESS_TEXT, EMPTY_STRING, -1);
         }
@@ -159,6 +164,8 @@ static GtkTreeModel *create_and_fill_model(void)
 
     return GTK_TREE_MODEL(treestore);
 }
+
+
 
 void alert(char msg[256])
 {
@@ -169,7 +176,6 @@ void alert(char msg[256])
 
 void erase_device()
 {
-
     alert(device_selected);
 }
 
@@ -183,9 +189,7 @@ void cancel_erasing_device()
     alert("cancel erase device");
 }
 
-void on_select_changed(GtkWidget *c)
-{
-
+void on_select_changed(GtkWidget *c){
     gchar *value;
     GtkTreeIter iter;
     GtkTreeModel *model;
@@ -197,15 +201,18 @@ void on_select_changed(GtkWidget *c)
     storage_device_t disk_selected;
     init_storage_device(&disk_selected);
     gtk_tree_model_get(model, &iter, 4, &value, -1);
-    find_device_by_serial(&disk_selected,value);
-
+    find_device_by_serial(&disk_selected, value);
+    
     system("clear");
-    printf("Name: %s\nVendor: %s\nModel: %s\nBus: %s\n",disk_selected.name,disk_selected.brand,disk_selected.model,disk_selected.bus);
-    printf("Block size: %i\n",disk_selected.block_size);
+    printf("Name: %s\nVendor: %s\nModel: %s\nBus: %s\n", disk_selected.name, disk_selected.vendor, disk_selected.model, disk_selected.bus);
+    printf("Block size: %lli\nBlock count: %lli\nsg dev: %s\n", disk_selected.sector_size,disk_selected.total_sectors,disk_selected.sg_name);
 }
+
 
 
 void on_destroy()
 {
     gtk_main_quit();
 }
+
+
