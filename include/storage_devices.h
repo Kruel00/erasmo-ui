@@ -57,6 +57,7 @@ typedef struct storage_device_s {
 	char bus[32];
 	char usb_driver[32];
 	char type_attribute[32];
+	gchar device_capacity_gb[12];
 
 	unsigned long long int total_sectors;
 	unsigned long long int sector_size;
@@ -64,6 +65,7 @@ typedef struct storage_device_s {
 	unsigned long long int capacity_bytes;
 	unsigned long long int used_bytes;
 
+	char device_state[64];
 	bool is_boot;
 
 	StorageDeviceType type;
@@ -72,7 +74,7 @@ typedef struct storage_device_s {
 
     bool is_erased;
 
-    char erasing_status[64];
+    char erasing_status[8];
 
 	partition_t *partitions;
 	size_t partition_count;

@@ -272,6 +272,8 @@ int detect_storage_devices(storage_device_list_t * const device_list) {
 	for(size_t i = 0U; i < device_list->count; ++i) {
 		detect_storage_device_type(&device_list->device[i]);
 		detect_storage_device_capacity(&device_list->device[i]);
+		set_device_state(&device_list->device[i]);
+		set_dev_gb(&device_list->device[i]);
 	}
 	return ret_val;
 }
@@ -363,47 +365,6 @@ void replace_all_chars(char *const string, char delete, char add)
         *temp = add;
 }
 
-
-/* Returns >= 0 if successful. If error in Unix returns negated errno. */
-int scsi_pt_open_device(const char * device_name, int read_only, int verbose)
-{
-    /* 04000 octal = 2048 decimal*/
-    int oflags = O_NONBLOCK;
-    int fd;
-
-    oflags |= (read_only ? O_RDONLY : O_RDWR);
-
-    fd = open(device_name, oflags);
-    if (fd < 0)
-        fd = -errno;
-    return fd;
-}
-
-
-int sg_cmds_open_device(const char * device_name, int read_only, int verbose){
-    return scsi_pt_open_device(device_name, read_only, verbose);
-}
-
-
-static char safe_errbuf[64] = {'u', 'n', 'k', 'n', 'o', 'w', 'n', ' ','e', 'r', 'r', 'n', 'o', ':', ' ', 0};
-
-char * safe_strerror(int errnum)
-{
-    size_t len;
-    char * errstr;
-  
-    if (errnum < 0)
-        errnum = -errnum;
-    errstr = strerror(errnum);
-    if (NULL == errstr) {
-        len = strlen(safe_errbuf);
-        snprintf(safe_errbuf + len, sizeof(safe_errbuf) - len, "%i", errnum);
-        safe_errbuf[sizeof(safe_errbuf) - 1] = '\0';  /* bombproof */
-        return safe_errbuf;
-    }
-    return errstr;
-}
-
 int detect_storage_device_capacity(storage_device_t * const device) {
 	return get_device_capacity_bytes(device->name, &device->capacity_bytes, &device->total_sectors, &device->sector_size);
 }
@@ -421,7 +382,6 @@ int detect_storage_nvme_short_name(storage_device_t * const device) {
 	}
 	return EXIT_FAILURE;
 }
-
 
 int detect_storage_serial_with_usb_adapter(storage_device_t * const device) {
 
@@ -482,13 +442,26 @@ int get_device_capacity_bytes(char const * const device, unsigned long long int 
 			*sector_size = (unsigned long long int)device_sector_size;
 			*size_in_bytes = (*total_sectors) * (*sector_size);
 
-			//const double gb_koeff = (1024.0 * 1024.0) * 1024.0;
-			//sprintf(device->capacity, "%.2f GB", (double)(hdd_size) / gb_koeff);
-
 			ret_val = EXIT_SUCCESS;
 		}
 		blkid_free_probe(hdd_probe);
 	}
 	
 	return ret_val;
+}
+
+void set_device_state(storage_device_t *const device){
+	strcpy(device->device_state,"Idle");
+}
+
+
+void set_dev_gb(storage_device_t *const device){
+
+	strcpy(device->device_capacity_gb,"500 gb");
+
+}
+
+
+void sig_inserted(GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter){
+    
 }

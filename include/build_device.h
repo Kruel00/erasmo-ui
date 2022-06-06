@@ -13,8 +13,6 @@ void init_storage_device_selected(storage_selected_t *const disk_selected);
 void set_device_capacity_data(storage_device_t *const device);
 void find_device_by_serial(storage_device_t *const device, gchar *const serial_no);
 
-int sg_cmds_open_device(const char * device_name, int read_only, int verbose);
-
 int detect_storage_device_type(storage_device_t * const device);
 
 int detect_storage_device_capacity(storage_device_t * const device);
@@ -24,3 +22,6 @@ int detect_storage_serial_with_usb_adapter(storage_device_t * const device);
 
 void free_partition(partition_t * const partition);
 int get_device_capacity_bytes(char const * const device, unsigned long long int * const size_in_bytes, unsigned long long int * const total_sectors, unsigned long long int * const sector_size);
+void set_device_state(storage_device_t *const device);
+
+void set_dev_gb(storage_device_t *const device);
