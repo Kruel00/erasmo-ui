@@ -42,7 +42,8 @@
 #define ME "erasmo"
 #define SG_DD_BYPASS 999        /* failed but coe set */
 #define SG_PATH_SIZE 512
-
+#define _GNU_SOURCE             /* See feature_test_macros(7) */
+#include <pthread.h>
 
 enum {
     STORAGE_DEVICE_NAME,
@@ -74,11 +75,14 @@ GtkTreeModel *model;
 
 storage_device_list_t erasing_devices;
 
+pthread_mutex_t mutex;
+
 char seleccionado[256];
 static int recovered_errs = 0;
 char device_selected[512];
 
 void *erase_thread_init();
+void *write_on_device(void *device_selected);
 
 //write module
 static struct flags_t oflag;
@@ -145,15 +149,11 @@ int main(int argc, char *argv[])
 
     gtk_main();
 
-    // hw
-    // libhw_init();
-
     selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(erasing_tree_view));
 
     printf("ERASMO");
     return 0;
 }
-
 
 void create_treeview_columns()
 {
@@ -175,14 +175,6 @@ void create_treeview_columns()
     GtkTreeViewColumn *model_column = gtk_tree_view_column_new_with_attributes("Model", model_renderer, "text", STORAGE_DEVICE_MODEL, NULL);
     gtk_tree_view_column_set_min_width(model_column, 350);
     gtk_tree_view_append_column(erasing_tree_view, model_column);
-
-    /* --- Columna Serial --- 
-
-    GtkCellRenderer *serail_renderer = gtk_cell_renderer_text_new();
-    g_object_set(G_OBJECT(serail_renderer), "font", font_desc, NULL);
-    GtkTreeViewColumn *serail_column = gtk_tree_view_column_new_with_attributes("Serial No.", serail_renderer, "text", STORAGE_DEVICE_SERIAL, NULL);
-    gtk_tree_view_column_set_min_width(serail_column, 250);
-    gtk_tree_view_append_column(erasing_tree_view, serail_column);*/
 
     /* --- Columna #3 --- */
     GtkCellRenderer *status_renderer = gtk_cell_renderer_text_new();
@@ -230,8 +222,6 @@ static GtkTreeModel *create_and_fill_model(){
     return GTK_TREE_MODEL(treestore);
 }
 
-
-
 void alert(char msg[256])
 {
     char cmd[512];
@@ -239,36 +229,28 @@ void alert(char msg[256])
     system(cmd);
 }
 
-
-void erase_device()
+int erase_device()
 {
     pthread_t h_eraser;
+
+    pthread_mutex_init(&mutex,NULL);
 
     storage_device_t device_erasing;
     init_storage_device(&device_erasing);
     
     find_device_by_serial(&device_erasing,seleccionado);
 
-    pthread_create(&h_eraser, NULL, erase_thread_init ,NULL );
+    if(pthread_create(&h_eraser, NULL, erase_thread_init ,NULL ) != 0)
+        return 1;
 
-    //pthread_join(h_eraser, NULL ) ;
-
-}
-
-
-
-void append_erasing_device(storage_device_t *const device){
-    
+    pthread_mutex_destroy(&mutex);
 
 }
 
 void refresh_devices()
 {
 
-
 }
-
-
 
 void on_select_changed(GtkWidget *c){
     gchar *value;
@@ -302,21 +284,17 @@ void on_select_changed(GtkWidget *c){
     strcpy(seleccionado,disk_selected.serial);
 }
 
+
 void on_destroy()
 {
     gtk_main_quit();
-}
-
-void quit_aplication()
-{
-    
 }
 
 void *erase_thread_init(){
 
     GtkTreeIter storage_device_itr;
     gboolean is_iter_valid  = gtk_tree_model_get_iter_first(model,&storage_device_itr);
-    
+
     storage_device_t erasing_device;
     init_storage_device(&erasing_device);
     find_device_by_serial(&erasing_device,seleccionado);
@@ -334,67 +312,46 @@ void *erase_thread_init(){
 		g_free(device_serial);
 		is_iter_valid = gtk_tree_model_iter_next(model, &storage_device_itr);
 	}
-    
+
     gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_STATE_TEXT,"Erasing...",-1);
-    char porcent[32];
-    for(int i = 0; i < 101; i++){
-        gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS,(double)i,-1);
-        sprintf(porcent,"Progress... %i%%\n",i);
-        gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS_TEXT,porcent,-1);
-        usleep (1000000);
-    }
-    gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_STATE_TEXT,"Erased",-1);
-    return NULL;
-} 
 
-void cancel_erasing_device()
-{
-    pthread_t h1 ;
-
-    pthread_create(&h1, NULL, erase_thread_init ,NULL );
-
-}
-
-
-void *th_write_disk(){
-
+    //write code ###########################################################################################################
     int res, dio_tmp;
     int outfd, blocks;
 
     unsigned char *wrkPos;
     unsigned char *fprint;
-    //long long skip = 0;
-    long long seek = 1;
+
+    long long seek = 0;
     static int blk_sz = 512;
     int scsi_cdbsz_out = DEF_SCSI_CDBSZ;
     char inf[512];
     unsigned char *wrkBuff;
-    unsigned char *wrkBuff2;
+    unsigned char *wrkBuff2;    
 
     uint8_t erasmosign[] = 
-    {
-    0x51, 0x75, 0x61, 0x6E, 0x74, 0x75, 0x6D, 0x20, 0x65, 0x72, 0x61, 0x73,
-    0x6D, 0x6F, 0x28, 0x52, 0x29, 0x20, 0x62, 0x79, 0x20, 0x4D, 0x6F, 0x62,
-    0x69, 0x6C, 0x69, 0x74, 0x79, 0x20, 0x54, 0x65, 0x61, 0x6D, 0x0a, 0x0a
+    { 
+      0x51, 0x75, 0x61, 0x6E, 0x74, 0x75, 0x6D, 0x20, 0x65, 0x72, 0x61, 0x73, 0x6D, 0x6F, 
+      0x28, 0x52, 0x29, 0x20, 0x62, 0x79, 0x20, 0x4D, 0x6F, 0x62, 0x69, 0x6C, 0x65, 0x20, 
+      0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x73, 0x20, 0x54, 0x65, 0x61, 0x6D
     };
 
-    strcpy(inf,"/dev/sg4");
+    strcpy(inf,erasing_device.sg_name);
 
     blocks=128;
     int bpt = 128;
-    int device_blocks = 3839999;
-
-
     
+    int device_blocks = erasing_device.total_sectors - 2;
+
     size_t psz = getpagesize();
     wrkBuff = malloc(blk_sz * bpt + psz);
 
-    wrkBuff2 = malloc(512);
+    wrkBuff2 = malloc(sizeof(erasmosign));
     long long int tfwide = blk_sz * bpt + psz;
     
     uint8_t data[tfwide];
 
-    memset(data,0x45,sizeof(data));
+    memset(data,0x30,sizeof(data));
 
     wrkPos = wrkBuff;
     memcpy(wrkPos,&data,sizeof(data));
@@ -409,41 +366,63 @@ void *th_write_disk(){
     }
 
     dio_tmp = 0;
+    char  *serial_device;
+    ulong pocento;
+    double porca;
+    //char progress_text;
+    //bucle de escritura ###################################################################################################
+    gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS_TEXT,EMPTY_STRING,-1);
+    
+    for(int i = 0;i < (device_blocks / blocks);i++){
+        pocento = seek * 100 ;
+        porca = pocento / device_blocks;
+        printf("%lli de %i sectors...\n",seek, device_blocks);
+        printf("porcent: %i%%\n",(int)porca);
 
-    for(int i = 1;i < (device_blocks / blocks);i++){
+        pthread_mutex_lock(&mutex);
+        
+        //gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS,porca,-1);
+        //sprintf(progress_text,"Progress %i%%",(int)porca);
+        //gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS_TEXT,progress_text,-1);
+        //sprintf(serial_device,"%s",erasing_device.serial);
 
-        printf("%lli de %i blocks...\n",seek, device_blocks);
+        pthread_mutex_unlock(&mutex);
+
         res = sg_write(outfd, wrkPos, blocks, seek, blk_sz, scsi_cdbsz_out, oflag.fua, oflag.dpo, &dio_tmp);
         seek += blocks;
-        system("clear");
-        
-        
     }
 
     int blk_remains = device_blocks - seek;
 
     if(seek > 0){
 
-        for(int i = 1;i < blk_remains + 2 ;i++){
-            printf("%lli de %i blocks...\n",seek, device_blocks);
+        for(int i = 0;i < blk_remains + 2 ;i++){
+            printf("%lli de %i sectors...\n",seek, device_blocks);
             res = sg_write(outfd, wrkPos, 1, seek, blk_sz, scsi_cdbsz_out, oflag.fua, oflag.dpo, &dio_tmp);
             seek++;
-            system("clear");
-            
         }
     }
 
     printf("restantes: %lli", device_blocks - seek);
 
-    if (res = sg_write(outfd, fprint, 1, 0, blk_sz, scsi_cdbsz_out, oflag.fua, oflag.dpo, &dio_tmp)){
-        printf("OK");
-    }
+    //if (res = sg_write(outfd, fprint, 1, 0, blk_sz, scsi_cdbsz_out, oflag.fua, oflag.dpo, &dio_tmp)){
+    //    printf("OK");
+   // }
 
     free(wrkBuff);
+    free(wrkBuff2);
 
+    //end write code ##############################################################################################
 
+    gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_STATE_TEXT,"Erased",-1);
+    gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS_TEXT,"Finished",-1);
+    return NULL;
+} 
+
+void cancel_erasing_device()
+{
+    
 }
-
 
 
 /* 0 -> successful, -1 -> unrecoverable error, -2 -> recoverable (ENOMEM),
@@ -463,7 +442,6 @@ static int sg_write(int sg_fd, unsigned char *buff, int blocks, long long to_blo
     }
 
     memset(&io_hdr, 0, sizeof(struct sg_io_hdr));
-
 
     io_hdr.interface_id = 'S';
     io_hdr.cmd_len = cdbsz;
@@ -631,9 +609,7 @@ static int sg_build_scsi_cdb(unsigned char *cdbp, int cdb_sz,
         cdbp[13] = (unsigned char)(blocks & 0xff);
         break;
     default:
-        fprintf(stderr, ME "expected cdb size of 6, 10, 12, or 16 but got"
-                           " %d\n",
-                cdb_sz);
+        fprintf(stderr, ME "expected cdb size of 6, 10, 12, or 16 but got %d\n",cdb_sz);
         return 1;
     }
     return 0;
