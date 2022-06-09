@@ -11,7 +11,7 @@ int alloc_storage_device_list(storage_device_list_t *const device_list, size_t p
 void replace_all_chars(char *const string, char delete, char add);
 void init_storage_device_selected(storage_selected_t *const disk_selected);
 void set_device_capacity_data(storage_device_t *const device);
-void find_device_by_serial(storage_device_t *const device, gchar *const serial_no);
+void find_device_by_serial(storage_device_list_t device_list, storage_device_t *const device, gchar *const device_serial);
 
 int detect_storage_device_type(storage_device_t * const device);
 

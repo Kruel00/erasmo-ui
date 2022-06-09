@@ -41,6 +41,11 @@
     "stdbool.h": "c",
     "errno.h": "c",
     "erasmo.h": "c",
-    "build_device.h": "c"
+    "build_device.h": "c",
+    "time.h": "c",
+    "stat.h": "c",
+    "ioctl.h": "c",
+    "scsi_ioctl.h": "c",
+    "erasing_device.h": "c"
   }
 }

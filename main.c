@@ -1,25 +1,19 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <stddef.h>
 #include <scsi/scsi_ioctl.h>
 #include <signal.h>
 #include <sys/time.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <errno.h>
-#include <sys/ioctl.h>
 
 #include "erasmo.h"
 #include "build_device.h"
 #include "sg_lib.h"
 #include "sg_cmds.h"
-#include "sg_io_linux.h"
 #include "llseek.h"
 
 /*
-    gcc -o erasmo main.c build_device.c sg_io_linux.c sg_cmds.c sg_pt_linux.c sg_lib.c `pkg-config --cflags --libs gtk+-3.0` -rdynamic -I./include -ludev -lblkid  -Wall
+    sudo gcc -o erasmo main.c build_device.c sg_io_linux.c sg_cmds.c sg_pt_linux.c sg_lib.c erasing_device.c `pkg-config --cflags --libs gtk+-3.0` -rdynamic -I./include -ludev -lblkid 
 */
 
 #define BUILDER_FILE "window_main.glade"
@@ -34,37 +28,9 @@
 #define INFO_BOX "txt_device_info"
 #define G_N_ELEMENTS(arr)(sizeof (arr) / sizeof ((arr)[0]))
 
-//Write Module
-#define DEF_SCSI_CDBSZ 10
-#define DEF_TIMEOUT 60000       /* 60,000 millisecs == 60 seconds */
-#define MAX_SCSI_CDBSZ 16
-#define SENSE_BUFF_LEN 64       /* Arbitrary, could be larger */
-#define ME "erasmo"
-#define SG_DD_BYPASS 999        /* failed but coe set */
-#define SG_PATH_SIZE 512
-#define _GNU_SOURCE             /* See feature_test_macros(7) */
-#include <pthread.h>
-
-enum {
-    STORAGE_DEVICE_NAME,
-    STORAGE_DEVICE_VENDOR,
-    STORAGE_DEVICE_MODEL,
-    STORAGE_DEVICE_CAPACITY_TEXT,
-    STORAGE_DEVICE_SERIAL,
-    STORAGE_DEVICE_BUS,
-
-    ERASING_STORAGE_DEVICE_STATE,
-    ERASING_STORAGE_DEVICE_STATE_TEXT,
-    ERASING_STORAGE_DEVICE_PROGRESS,
-    ERASING_STORAGE_DEVICE_PROGRESS_TEXT,
-    ERASING_STORAGE_DEVICE_POINTER_TO_OBJECT,
-
-    STORAGE_DEVICE_N_COLUMNS
-};
-
-
 GtkWidget *window;
 GtkWidget *txt_device_info;
+GtkWidget *device_tree_selection;
 GtkTextBuffer *buffer;
 GtkBuilder *builder;
 GtkTreeView *erasing_tree_view;
@@ -73,50 +39,24 @@ GtkTreeStore *treestore;
 GtkTreeIter toplevel, child;
 GtkTreeModel *model;
 
-storage_device_list_t erasing_devices;
+storage_device_list_t device_list;
 
 pthread_mutex_t mutex;
 
 char seleccionado[256];
-static int recovered_errs = 0;
 char device_selected[512];
 
 void *erase_thread_init();
 void *write_on_device(void *device_selected);
 
 //write module
-static struct flags_t oflag;
 
-
-struct flags_t {
-    bool append;
-    bool dio;
-    bool direct;
-    bool dpo;
-    bool dsync;
-    bool excl;
-    bool flock;
-    bool ff;
-    bool fua;
-    bool nocreat;
-    bool random;
-    bool sgio;
-    bool sparse;
-    bool zero;
-    int cdbsz;
-    int cdl;
-    int coe;
-    int nocache;
-    int pdt;
-    int retries;
-};
 
 int main(int argc, char *argv[])
 {
     // window
     gtk_init(&argc, &argv);
     builder = gtk_builder_new_from_file(BUILDER_FILE);
-    init_storage_device_list(&erasing_devices);
 
     // treeview
     create_treeview_columns();
@@ -157,7 +97,6 @@ int main(int argc, char *argv[])
 
 void create_treeview_columns()
 {
-
     const char *font_desc = "font-family: sans-serif; font-size: 20px";
     erasing_tree_view = GTK_TREE_VIEW(gtk_builder_get_object(builder, DEVICE_TREEVIEW));
 
@@ -192,12 +131,10 @@ void create_treeview_columns()
 
 static GtkTreeModel *create_and_fill_model(){
 
-   // creamos un treestore con la cantidad de columnas y los tipos de campos que se usan
     treestore = gtk_tree_store_new(STORAGE_DEVICE_N_COLUMNS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
                                    G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_DOUBLE, G_TYPE_STRING,
                                    G_TYPE_POINTER);
 
-    storage_device_list_t device_list;
     init_storage_device_list(&device_list);
 
     storage_device_t disk;
@@ -208,7 +145,7 @@ static GtkTreeModel *create_and_fill_model(){
 
         for (int dev_num = 0; dev_num < device_list.count; dev_num++)
         {
-            // nueva celda
+
             set_device_capacity_data(&device_list.device[dev_num]);
             gtk_tree_store_append(treestore, &toplevel, NULL);
             device_list.device[dev_num].is_erased = false;
@@ -229,22 +166,52 @@ void alert(char msg[256])
     system(cmd);
 }
 
+void *erase_device_th(void * device_data){
+
+    storage_device_t *device_recived;
+
+    device_recived = (storage_device_t * )device_data;
+
+    printf("tipo: %i\n",device_recived->type);
+
+    switch (device_recived->type)
+    {
+    case INTERNAL_SG_DEVICE:
+        printf("init erase internal device\n");
+        break;
+    case EXTERNAL_SG_DEVICE:
+        printf("init erase external device\n");
+        break;
+    case NVME_DEVICE:
+        printf("init erase NVME device\n");
+        break; 
+    default:
+        break;
+    }
+    return NULL;
+}
+
 int erase_device()
 {
-    pthread_t h_eraser;
+    gchar *value;
+    GtkTreeIter iter;
+    pthread_t th_eraser;
+    storage_device_t selected_device;
+    init_storage_device(&selected_device);
 
-    pthread_mutex_init(&mutex,NULL);
-
-    storage_device_t device_erasing;
-    init_storage_device(&device_erasing);
-    
-    find_device_by_serial(&device_erasing,seleccionado);
-
-    if(pthread_create(&h_eraser, NULL, erase_thread_init ,NULL ) != 0)
+    if (gtk_tree_selection_get_selected(GTK_TREE_SELECTION(device_tree_selection), &model, &iter) == FALSE){
         return 1;
+    }
+        
+    gtk_tree_model_get(model, &iter, 4, &value, -1);
+    
+    find_device_by_serial(device_list,&selected_device,value);
+        
+    pthread_create(&th_eraser,NULL,erase_device_th,&selected_device);
+    
+    pthread_join(th_eraser,NULL);
 
-    pthread_mutex_destroy(&mutex);
-
+    return 0;
 }
 
 void refresh_devices()
@@ -258,6 +225,12 @@ void on_select_changed(GtkWidget *c){
     GtkTreeModel *model;
     char text[720];  
     gchar storage_device_capacity_gb[32];
+    const long double gb_koeff = (1000.0 * 1000.0) * 1000.0;
+
+    storage_device_t disk_selected;
+    init_storage_device(&disk_selected);
+
+   
 
     txt_device_info = GTK_WIDGET(gtk_builder_get_object(builder,INFO_BOX));
     buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(txt_device_info));
@@ -265,23 +238,19 @@ void on_select_changed(GtkWidget *c){
     if (gtk_tree_selection_get_selected(GTK_TREE_SELECTION(c), &model, &iter) == FALSE)
         return;
 
-    storage_device_t disk_selected;
-    init_storage_device(&disk_selected);
-
+    device_tree_selection = c;
     gtk_tree_model_get(model, &iter, 4, &value, -1);
-    const long double gb_koeff = (1000.0 * 1000.0) * 1000.0;
 
-    find_device_by_serial(&disk_selected, value);
+
+    find_device_by_serial(device_list,&disk_selected,value);
 
     g_snprintf(storage_device_capacity_gb, G_N_ELEMENTS(storage_device_capacity_gb), "%.2Lf GB", (long double)(disk_selected.sector_size * disk_selected.total_sectors)/ gb_koeff);
-
     sprintf(text, "Name: %s\nVendor: %s\nModel: %s\nBus: %s\nCapacity: %s\nSerial: %s\n", 
-
     disk_selected.name, disk_selected.vendor, disk_selected.model, disk_selected.bus, storage_device_capacity_gb,disk_selected.serial);
-
     gtk_text_buffer_set_text(buffer,text ? text : "", -1); 
 
     strcpy(seleccionado,disk_selected.serial);
+
 }
 
 
@@ -289,329 +258,3 @@ void on_destroy()
 {
     gtk_main_quit();
 }
-
-void *erase_thread_init(){
-
-    GtkTreeIter storage_device_itr;
-    gboolean is_iter_valid  = gtk_tree_model_get_iter_first(model,&storage_device_itr);
-
-    storage_device_t erasing_device;
-    init_storage_device(&erasing_device);
-    find_device_by_serial(&erasing_device,seleccionado);
-
-    while (is_iter_valid == TRUE)
-	{
-		gchar *device_serial;
-		gtk_tree_model_get(model, &storage_device_itr, STORAGE_DEVICE_SERIAL, &device_serial, -1);
-
-		if (strcmp(seleccionado, device_serial) == 0)
-		{
-			g_free(device_serial);
-            break;
-		}
-		g_free(device_serial);
-		is_iter_valid = gtk_tree_model_iter_next(model, &storage_device_itr);
-	}
-
-    gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_STATE_TEXT,"Erasing...",-1);
-
-    //write code ###########################################################################################################
-    int res, dio_tmp;
-    int outfd, blocks;
-
-    unsigned char *wrkPos;
-    unsigned char *fprint;
-
-    long long seek = 0;
-    static int blk_sz = 512;
-    int scsi_cdbsz_out = DEF_SCSI_CDBSZ;
-    char inf[512];
-    unsigned char *wrkBuff;
-    unsigned char *wrkBuff2;    
-
-    uint8_t erasmosign[] = 
-    { 
-      0x51, 0x75, 0x61, 0x6E, 0x74, 0x75, 0x6D, 0x20, 0x65, 0x72, 0x61, 0x73, 0x6D, 0x6F, 
-      0x28, 0x52, 0x29, 0x20, 0x62, 0x79, 0x20, 0x4D, 0x6F, 0x62, 0x69, 0x6C, 0x65, 0x20, 
-      0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x73, 0x20, 0x54, 0x65, 0x61, 0x6D
-    };
-
-    strcpy(inf,erasing_device.sg_name);
-
-    blocks=128;
-    int bpt = 128;
-    
-    int device_blocks = erasing_device.total_sectors - 2;
-
-    size_t psz = getpagesize();
-    wrkBuff = malloc(blk_sz * bpt + psz);
-
-    wrkBuff2 = malloc(sizeof(erasmosign));
-    long long int tfwide = blk_sz * bpt + psz;
-    
-    uint8_t data[tfwide];
-
-    memset(data,0x30,sizeof(data));
-
-    wrkPos = wrkBuff;
-    memcpy(wrkPos,&data,sizeof(data));
-    
-    fprint = wrkBuff2;
-    memcpy(fprint,&erasmosign,sizeof(erasmosign));
-
-    //open device.
-    if ((outfd = sg_cmds_open_device(inf, 1, 0)) < 0)
-    {   
-        fprintf(stderr, ME " Device %s dont exist\n", inf);
-    }
-
-    dio_tmp = 0;
-    char  *serial_device;
-    ulong pocento;
-    double porca;
-    //char progress_text;
-    //bucle de escritura ###################################################################################################
-    gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS_TEXT,EMPTY_STRING,-1);
-    
-    for(int i = 0;i < (device_blocks / blocks);i++){
-        pocento = seek * 100 ;
-        porca = pocento / device_blocks;
-        printf("%lli de %i sectors...\n",seek, device_blocks);
-        printf("porcent: %i%%\n",(int)porca);
-
-        pthread_mutex_lock(&mutex);
-        
-        //gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS,porca,-1);
-        //sprintf(progress_text,"Progress %i%%",(int)porca);
-        //gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS_TEXT,progress_text,-1);
-        //sprintf(serial_device,"%s",erasing_device.serial);
-
-        pthread_mutex_unlock(&mutex);
-
-        res = sg_write(outfd, wrkPos, blocks, seek, blk_sz, scsi_cdbsz_out, oflag.fua, oflag.dpo, &dio_tmp);
-        seek += blocks;
-    }
-
-    int blk_remains = device_blocks - seek;
-
-    if(seek > 0){
-
-        for(int i = 0;i < blk_remains + 2 ;i++){
-            printf("%lli de %i sectors...\n",seek, device_blocks);
-            res = sg_write(outfd, wrkPos, 1, seek, blk_sz, scsi_cdbsz_out, oflag.fua, oflag.dpo, &dio_tmp);
-            seek++;
-        }
-    }
-
-    printf("restantes: %lli", device_blocks - seek);
-
-    //if (res = sg_write(outfd, fprint, 1, 0, blk_sz, scsi_cdbsz_out, oflag.fua, oflag.dpo, &dio_tmp)){
-    //    printf("OK");
-   // }
-
-    free(wrkBuff);
-    free(wrkBuff2);
-
-    //end write code ##############################################################################################
-
-    gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_STATE_TEXT,"Erased",-1);
-    gtk_tree_store_set(treestore,&storage_device_itr,ERASING_STORAGE_DEVICE_PROGRESS_TEXT,"Finished",-1);
-    return NULL;
-} 
-
-void cancel_erasing_device()
-{
-    
-}
-
-
-/* 0 -> successful, -1 -> unrecoverable error, -2 -> recoverable (ENOMEM),
-   -3 -> try again (media changed unit attention) */
-static int sg_write(int sg_fd, unsigned char *buff, int blocks, long long to_block, int bs, int cdbsz, int fua, int dpo, int *diop){
-
-    unsigned char wrCmd[MAX_SCSI_CDBSZ];
-    unsigned char senseBuff[SENSE_BUFF_LEN];
-    struct sg_io_hdr io_hdr;
-    int res, k, info_valid;
-    unsigned long long io_addr = 0;
-
-    if (sg_build_scsi_cdb(wrCmd, cdbsz, blocks, to_block, 1, fua, dpo))
-    {
-        fprintf(stderr, ME " bad wr cdb build, to_block=%lld, blocks=%d\n", to_block, blocks);
-        return -1;
-    }
-
-    memset(&io_hdr, 0, sizeof(struct sg_io_hdr));
-
-    io_hdr.interface_id = 'S';
-    io_hdr.cmd_len = cdbsz;
-    io_hdr.cmdp = wrCmd;
-    io_hdr.dxfer_direction = SG_DXFER_TO_DEV;
-    io_hdr.dxfer_len = bs * blocks;
-    io_hdr.dxferp = buff;
-    io_hdr.mx_sb_len = SENSE_BUFF_LEN;
-    io_hdr.sbp = senseBuff;
-    io_hdr.timeout = DEF_TIMEOUT;
-    io_hdr.pack_id = (int)to_block;
-
-    if (diop && *diop)
-        io_hdr.flags |= SG_FLAG_DIRECT_IO;
-
-    if (0 > 2)
-    {
-        fprintf(stderr, "    write cdb: ");
-        for (k = 0; k < cdbsz; ++k)
-            fprintf(stderr, "%02x ", wrCmd[k]);
-        fprintf(stderr, "\n");
-    }
-    while (((res = ioctl(sg_fd, SG_IO, &io_hdr)) < 0) && (EINTR == errno))
-        ;
-    if (res < 0)
-    {
-        if (ENOMEM == errno)
-            return -2;
-        perror("writing (SG_IO) on sg device, error");
-        return -1;
-    }
-
-    if (0 > 2)
-        fprintf(stderr, "      duration=%u ms\n", io_hdr.duration);
-    switch (sg_err_category3(&io_hdr))
-    {
-    case SG_LIB_CAT_CLEAN:
-        break;
-    case SG_LIB_CAT_RECOVERED:
-        ++recovered_errs;
-        info_valid = sg_get_sense_info_fld(io_hdr.sbp, io_hdr.sb_len_wr, &io_addr);
-
-        if (info_valid)
-        {
-            fprintf(stderr, "    lba of last recovered error in this WRITE=0x%llx\n", io_addr);
-            if (0 > 1)
-                sg_chk_n_print3("writing", &io_hdr, 1);
-        }
-        else
-        {
-            fprintf(stderr, "Recovered error: [no info] writing to "
-                            "block=0x%llx, num=%d\n",
-                    to_block, blocks);
-            sg_chk_n_print3("writing", &io_hdr, 0 > 1);
-        }
-        break;
-    case SG_LIB_CAT_MEDIA_CHANGED:
-        if (0 > 1)
-            sg_chk_n_print3("writing", &io_hdr, 1);
-        return -3;
-    default:
-        sg_chk_n_print3("writing", &io_hdr, 0 > 1);
-        if (oflag.coe)
-        {
-            fprintf(stderr, ">> ignored errors for out blk=%lld for "
-                            "%d bytes\n",
-                    to_block, bs * blocks);
-            return 0; /* fudge success */
-        }
-        else
-            return -1;
-    }
-    if (diop && *diop &&
-        ((io_hdr.info & SG_INFO_DIRECT_IO_MASK) != SG_INFO_DIRECT_IO))
-        *diop = 0; /* flag that dio not done (completely) */
-    return 0;
-}
-
-
-static int sg_build_scsi_cdb(unsigned char *cdbp, int cdb_sz,
-                             unsigned int blocks, long long start_block,
-                             int write_true, int fua, int dpo)
-{
-    int rd_opcode[] = {0x8, 0x28, 0xa8, 0x88};
-    int wr_opcode[] = {0xa, 0x2a, 0xaa, 0x8a};
-    int sz_ind;
-
-    memset(cdbp, 0, cdb_sz);
-    if (dpo)
-        cdbp[1] |= 0x10;
-    if (fua)
-        cdbp[1] |= 0x8;
-    switch (cdb_sz)
-    {
-    case 6:
-        sz_ind = 0;
-        cdbp[0] = (unsigned char)(write_true ? wr_opcode[sz_ind] : rd_opcode[sz_ind]);
-        cdbp[1] = (unsigned char)((start_block >> 16) & 0x1f);
-        cdbp[2] = (unsigned char)((start_block >> 8) & 0xff);
-        cdbp[3] = (unsigned char)(start_block & 0xff);
-        cdbp[4] = (256 == blocks) ? 0 : (unsigned char)blocks;
-        if (blocks > 256)
-        {
-            fprintf(stderr, ME "for 6 byte commands, maximum number of "
-                               "blocks is 256\n");
-            return 1;
-        }
-        if ((start_block + blocks - 1) & (~0x1fffff))
-        {
-            fprintf(stderr, ME "for 6 byte commands, can't address blocks"
-                               " beyond %d\n",
-                    0x1fffff);
-            return 1;
-        }
-        if (dpo || fua)
-        {
-            fprintf(stderr, ME "for 6 byte commands, neither dpo nor fua"
-                               " bits supported\n");
-            return 1;
-        }
-        break;
-    case 10:
-        sz_ind = 1;
-        cdbp[0] = (unsigned char)(write_true ? wr_opcode[sz_ind] : rd_opcode[sz_ind]);
-        cdbp[2] = (unsigned char)((start_block >> 24) & 0xff);
-        cdbp[3] = (unsigned char)((start_block >> 16) & 0xff);
-        cdbp[4] = (unsigned char)((start_block >> 8) & 0xff);
-        cdbp[5] = (unsigned char)(start_block & 0xff);
-        cdbp[7] = (unsigned char)((blocks >> 8) & 0xff);
-        cdbp[8] = (unsigned char)(blocks & 0xff);
-        if (blocks & (~0xffff))
-        {
-            fprintf(stderr, ME "for 10 byte commands, maximum number of "
-                               "blocks is %d\n",
-                    0xffff);
-            return 1;
-        }
-        break;
-    case 12:
-        sz_ind = 2;
-        cdbp[0] = (unsigned char)(write_true ? wr_opcode[sz_ind] : rd_opcode[sz_ind]);
-        cdbp[2] = (unsigned char)((start_block >> 24) & 0xff);
-        cdbp[3] = (unsigned char)((start_block >> 16) & 0xff);
-        cdbp[4] = (unsigned char)((start_block >> 8) & 0xff);
-        cdbp[5] = (unsigned char)(start_block & 0xff);
-        cdbp[6] = (unsigned char)((blocks >> 24) & 0xff);
-        cdbp[7] = (unsigned char)((blocks >> 16) & 0xff);
-        cdbp[8] = (unsigned char)((blocks >> 8) & 0xff);
-        cdbp[9] = (unsigned char)(blocks & 0xff);
-        break;
-    case 16:
-        sz_ind = 3;
-        cdbp[0] = (unsigned char)(write_true ? wr_opcode[sz_ind] : rd_opcode[sz_ind]);
-        cdbp[2] = (unsigned char)((start_block >> 56) & 0xff);
-        cdbp[3] = (unsigned char)((start_block >> 48) & 0xff);
-        cdbp[4] = (unsigned char)((start_block >> 40) & 0xff);
-        cdbp[5] = (unsigned char)((start_block >> 32) & 0xff);
-        cdbp[6] = (unsigned char)((start_block >> 24) & 0xff);
-        cdbp[7] = (unsigned char)((start_block >> 16) & 0xff);
-        cdbp[8] = (unsigned char)((start_block >> 8) & 0xff);
-        cdbp[9] = (unsigned char)(start_block & 0xff);
-        cdbp[10] = (unsigned char)((blocks >> 24) & 0xff);
-        cdbp[11] = (unsigned char)((blocks >> 16) & 0xff);
-        cdbp[12] = (unsigned char)((blocks >> 8) & 0xff);
-        cdbp[13] = (unsigned char)(blocks & 0xff);
-        break;
-    default:
-        fprintf(stderr, ME "expected cdb size of 6, 10, 12, or 16 but got %d\n",cdb_sz);
-        return 1;
-    }
-    return 0;
-}
-

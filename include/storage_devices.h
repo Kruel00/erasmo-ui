@@ -1,5 +1,9 @@
 #include <stdbool.h>
 
+#include <glib.h>
+
+
+
 typedef struct mount_point_s {
 
 	char path[512];
@@ -51,7 +55,7 @@ typedef struct storage_device_s {
 	char sys_path[512];
 	char partition_table_type[32];
 	char partition_table_uuid[64];
-	char serial[256];
+	gchar serial[256];
 	char model[128];
 	char vendor[128];
 	char bus[32];

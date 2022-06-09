@@ -50,14 +50,9 @@ void set_device_capacity_data(storage_device_t *const device)
 }
 
 
-void find_device_by_serial(storage_device_t *const device, gchar *const device_serial)
+void find_device_by_serial(storage_device_list_t device_list, storage_device_t *const device, gchar *const device_serial)
 {
 
-    storage_device_list_t device_list;
-    init_storage_device_list(&device_list);
-
-    if (detect_storage_devices(&device_list) == 0)
-    {
         for (int dev_num = 0; dev_num < device_list.count; dev_num++)
         {
             if (strcmp(device_list.device[dev_num].serial, device_serial) == 0){
@@ -69,9 +64,9 @@ void find_device_by_serial(storage_device_t *const device, gchar *const device_s
                 strcpy(device->model,device_list.device[dev_num].model);
                 device->total_sectors = device_list.device[dev_num].total_sectors;
                 strcpy(device->sg_name,device_list.device[dev_num].sg_name);
+				device->type = device_list.device[dev_num].type;
             }
         }
-    }
 }
 
 
